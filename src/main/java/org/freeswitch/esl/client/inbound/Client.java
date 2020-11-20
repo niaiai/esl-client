@@ -15,7 +15,6 @@
  */
 package org.freeswitch.esl.client.inbound;
 
-import com.google.common.base.Throwables;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -37,6 +36,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static com.google.common.base.Throwables.throwIfUnchecked;
 
 /**
  * Entry point to connect to a running FreeSWITCH Event Socket Library module, as a client.
@@ -307,7 +308,8 @@ public class Client implements IModEslApi {
 				throw new IllegalStateException("not connected/authenticated");
 			}
 		} catch (Throwable t) {
-			throw Throwables.propagate(t);
+            throwIfUnchecked(t);
+            throw t;
 		}
 
 
