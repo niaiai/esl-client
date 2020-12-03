@@ -16,6 +16,7 @@
 package org.freeswitch.esl.client.transport.message;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.handler.codec.TooLongFrameException;
@@ -24,6 +25,7 @@ import org.freeswitch.esl.client.transport.message.EslHeaders.Name;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -187,22 +189,22 @@ public class EslFrameDecoder extends ReplayingDecoder<EslFrameDecoder.State> {
 	}
 
 	private String readLine(ByteBuf buffer, int maxLineLength) throws TooLongFrameException {
-		StringBuilder sb = new StringBuilder(64);
+		ByteBuf buf = Unpooled.buffer(64);
 		while (buffer.isReadable()) {
 			// this read should always succeed
 			byte nextByte = buffer.readByte();
 			if (nextByte == LF) {
-				return sb.toString();
+				return buf.toString(StandardCharsets.UTF_8);
 			} else {
 				// Abort decoding if the decoded line is too large.
-				if (sb.length() >= maxLineLength) {
+				if (buf.writerIndex() >= maxLineLength) {
 					throw new TooLongFrameException(
 						"ESL message line is longer than " + maxLineLength + " bytes.");
 				}
-				sb.append((char) nextByte);
+				buf.writeByte(nextByte);
 			}
 		}
 
-		return sb.toString();
+		return buf.toString(StandardCharsets.UTF_8);
 	}
 }

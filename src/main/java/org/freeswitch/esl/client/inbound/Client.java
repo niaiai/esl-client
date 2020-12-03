@@ -60,6 +60,7 @@ public class Client implements IModEslApi {
 	private CommandResponse authenticationResponse;
 	private Optional<Context> clientContext = Optional.empty();
 	private ExecutorService callbackExecutor = Executors.newSingleThreadExecutor();
+	private Runnable disconnectedCallback;
 
 	public void addEventListener(IEslEventListener listener) {
 		if (listener != null) {
@@ -315,6 +316,10 @@ public class Client implements IModEslApi {
 
 	}
 
+	public void setDisconnectedCallback(Runnable runnable) {
+		this.disconnectedCallback = runnable;
+	}
+
 	/*
 		*  Internal observer of the ESL protocol
 		*/
@@ -339,6 +344,10 @@ public class Client implements IModEslApi {
 		@Override
 		public void disconnected() {
 			log.info("Disconnected ...");
+			if (disconnectedCallback != null) {
+				callbackExecutor.execute(disconnectedCallback);
+				disconnectedCallback = null;
+			}
 		}
 	};
 }
