@@ -1,5 +1,6 @@
 apply plugin: 'java'
 apply plugin: 'maven'
+apply plugin: 'maven-publish' //发布到maven 库中的插件
 
 group = 'org.freeswitch.esl.client'
 version = '0.10.0-SNAPSHOT'
@@ -17,4 +18,34 @@ dependencies {
     compile 'org.slf4j:slf4j-api:1.7.25'
     runtime 'ch.qos.logback:logback-classic:1.2.3'
     testCompile 'junit:junit:4.8.1'
+}
+
+//打包源码
+task sourceJar(type: Jar) {
+    from sourceSets.main.allJava
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            //打包源码和class
+            from components.java    //发布java组件
+
+            //配置上传源码
+            artifact sourceJar {
+                classifier "sources"
+            }
+        }
+    }
+
+    repositories {
+        maven {
+            //指定要上传的maven私服仓库
+            url "http://xxx.xxx.xxx.xxx/repository/maven-snapshots/"
+            credentials {
+                username "****"
+                password "****"
+            }
+        }
+    }
 }
