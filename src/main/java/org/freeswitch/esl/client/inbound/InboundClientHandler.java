@@ -15,6 +15,7 @@
  */
 package org.freeswitch.esl.client.inbound;
 
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import org.freeswitch.esl.client.internal.AbstractEslClientHandler;
 import org.freeswitch.esl.client.internal.Context;
@@ -38,6 +39,7 @@ import org.freeswitch.esl.client.transport.message.EslHeaders;
  * pipeline prior to this handler. This will ensure that each incoming message is processed in its
  * own thread (although still guaranteed to be processed in the order of receipt).
  */
+@ChannelHandler.Sharable
 class InboundClientHandler extends AbstractEslClientHandler {
 
 	private final String password;

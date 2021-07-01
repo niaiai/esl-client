@@ -20,12 +20,15 @@ public class ClientExample {
 
             String password = args[0];
 
-            Client client = new Client();
+            Client client = new Client(new InetSocketAddress("localhost", 8021), password, 10);
 
-            client.addEventListener((ctx, event) -> L.info("Received event: {}", event.getEventName()));
+            Runnable customInit = () ->{
+                client.addEventListener((ctx, event) -> L.info("Received event: {}", event.getEventName()));
+                client.setEventSubscriptions(EventFormat.PLAIN, "all");
+            };
 
-            client.connect(new InetSocketAddress("localhost", 8021), password, 10);
-            client.setEventSubscriptions(EventFormat.PLAIN, "all");
+            client.setCustomInit(customInit);
+            client.connect();
 
         } catch (Throwable t) {
             Throwables.propagate(t);

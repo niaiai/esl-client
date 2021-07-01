@@ -1,25 +1,22 @@
 /*
  * Copyright 2010 david varnes.
  *
- * Licensed under the Apache License, version 2.0 (the "License"); 
- * you may not use this file except in compliance with the License. 
+ * Licensed under the Apache License, version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at:
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, 
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
 package org.freeswitch.esl.client.inbound;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import org.freeswitch.esl.client.internal.Context;
@@ -60,7 +57,45 @@ public class Client implements IModEslApi {
 	private CommandResponse authenticationResponse;
 	private Optional<Context> clientContext = Optional.empty();
 	private ExecutorService callbackExecutor = Executors.newSingleThreadExecutor();
-	private Runnable disconnectedCallback;
+	private Bootstrap bootstrap;
+	private InboundClientHandler handler;
+	private SocketAddress clientAddress;
+	private String password;
+	private int timeoutSeconds;
+	private Runnable customInit;
+
+
+	/**
+	 * Attempt to establish an authenticated connection to the nominated FreeSWITCH ESL server socket.
+	 * This call will block, waiting for an authentication handshake to occur, or timeout after the
+	 * supplied number of seconds.
+	 *
+	 * @param clientAddress  a SocketAddress representing the endpoint to connect to
+	 * @param password       server event socket is expecting (set in event_socket_conf.xml)
+	 * @param timeoutSeconds number of seconds to wait for the server socket before aborting
+	 */
+	public Client(SocketAddress clientAddress, String password, int timeoutSeconds) {
+		this.clientAddress = clientAddress;
+		this.password = password;
+		this.timeoutSeconds = timeoutSeconds;
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
+
+		// Configure this client
+		bootstrap = new Bootstrap()
+				.group(workerGroup)
+				.channel(NioSocketChannel.class)
+				.option(ChannelOption.SO_KEEPALIVE, true);
+
+		// Add ESL handler and factory
+		handler = new InboundClientHandler(password, protocolListener);
+		ReconnectHandler reconnectHandler = new ReconnectHandler(this);
+		bootstrap.handler(new InboundChannelInitializer(handler, reconnectHandler));
+	}
+
+	public void setCustomInit(Runnable customInit) {
+		this.customInit = customInit;
+	}
+
 
 	public void addEventListener(IEslEventListener listener) {
 		if (listener != null) {
@@ -89,68 +124,41 @@ public class Client implements IModEslApi {
 	 * Attempt to establish an authenticated connection to the nominated FreeSWITCH ESL server socket.
 	 * This call will block, waiting for an authentication handshake to occur, or timeout after the
 	 * supplied number of seconds.
-	 *
-	 * @param clientAddress  a SocketAddress representing the endpoint to connect to
-	 * @param password       server event socket is expecting (set in event_socket_conf.xml)
-	 * @param timeoutSeconds number of seconds to wait for the server socket before aborting
 	 */
-	public void connect(SocketAddress clientAddress, String password, int timeoutSeconds) throws InboundConnectionFailure {
+	public void connect() {
+		reConnectClearEnvironment();
 		// If already connected, disconnect first
 		if (canSend()) {
 			close();
 		}
-
 		log.info("Connecting to {} ...", clientAddress);
-
-		EventLoopGroup workerGroup = new NioEventLoopGroup();
-
-		// Configure this client
-		Bootstrap bootstrap = new Bootstrap()
-				.group(workerGroup)
-				.channel(NioSocketChannel.class)
-				.option(ChannelOption.SO_KEEPALIVE, true);
-
-		// Add ESL handler and factory
-		InboundClientHandler handler = new InboundClientHandler(password, protocolListener);
-		bootstrap.handler(new InboundChannelInitializer(handler));
-
 		// Attempt connection
 		ChannelFuture future = bootstrap.connect(clientAddress);
-
-		// Wait till attempt succeeds, fails or timeouts
-		if (!future.awaitUninterruptibly(timeoutSeconds, TimeUnit.SECONDS)) {
-			throw new InboundConnectionFailure("Timeout connecting to " + clientAddress);
-		}
-		// Did not timeout
-		final Channel channel = future.channel();
-		// But may have failed anyway
-		if (!future.isSuccess()) {
-			log.warn("Failed to connect to [{}]", clientAddress, future.cause());
-
-			workerGroup.shutdownGracefully();
-
-			throw new InboundConnectionFailure("Could not connect to " + clientAddress, future.cause());
-		}
-
-		log.info("Connected to {}", clientAddress);
-
-		//  Wait for the authentication handshake to call back
-		while (!authenticatorResponded.get()) {
-			try {
-				Thread.sleep(250);
-			} catch (InterruptedException e) {
-				// ignore
-			}
-		}
-
-		this.clientContext = Optional.of(new Context(channel, handler));
-
-		if (!authenticated) {
-			throw new InboundConnectionFailure("Authentication failed: " + authenticationResponse.getReplyText());
-		}
-
-		log.info("Authenticated");
+		future.addListener(connectListener());
 	}
+
+	private void reConnectClearEnvironment() {
+		authenticated = false;
+		authenticationResponse = null;
+		authenticatorResponded.set(false);
+		eventListeners.clear();
+	}
+
+	private ChannelFutureListener connectListener() {
+		return future -> {
+			if (!future.isSuccess()) {
+				log.warn("Failed to connect to [{}], fire inactive ...", clientAddress);
+
+				future.channel().pipeline().fireChannelInactive();
+				return;
+			}
+			Channel channel = future.channel();
+			log.info("Connected to {}", clientAddress);
+
+			this.clientContext = Optional.of(new Context(channel, handler));
+		};
+	}
+
 
 	/**
 	 * Sends a FreeSWITCH API command to the server and blocks, waiting for an immediate response from the
@@ -316,10 +324,6 @@ public class Client implements IModEslApi {
 
 	}
 
-	public void setDisconnectedCallback(Runnable runnable) {
-		this.disconnectedCallback = runnable;
-	}
-
 	/*
 		*  Internal observer of the ESL protocol
 		*/
@@ -330,7 +334,21 @@ public class Client implements IModEslApi {
 			authenticatorResponded.set(true);
 			authenticated = response.isOk();
 			authenticationResponse = response;
+			if (customInit != null && authenticated) {
+				// authenticated then custom init
+				callbackExecutor.execute(customInit);
+			}
 			log.debug("Auth response success={}, message=[{}]", authenticated, response.getReplyText());
+
+			if (!authenticated) {
+				String msg = null;
+				if (authenticationResponse != null) {
+					msg = authenticationResponse.getReplyText();
+				}
+				log.warn("Authentication failed: {}", msg);
+			} else {
+				log.info("Authenticated");
+			}
 		}
 
 		@Override
@@ -344,10 +362,6 @@ public class Client implements IModEslApi {
 		@Override
 		public void disconnected() {
 			log.info("Disconnected ...");
-			if (disconnectedCallback != null) {
-				callbackExecutor.execute(disconnectedCallback);
-				disconnectedCallback = null;
-			}
 		}
 	};
 }

@@ -27,8 +27,8 @@ public class OutboundTest {
     public OutboundTest() {
         try {
 
-            final Client inboudClient = new Client();
-            inboudClient.connect(new InetSocketAddress("localhost", 8021), "ClueCon", 10);
+            final Client inboudClient = new Client(new InetSocketAddress("localhost", 8021), "ClueCon", 10);
+            inboudClient.connect();
             inboudClient.addEventListener((ctx, event) -> logger.info("INBOUND onEslEvent: {}", event.getEventName()));
 
             final SocketClient outboundServer = new SocketClient(

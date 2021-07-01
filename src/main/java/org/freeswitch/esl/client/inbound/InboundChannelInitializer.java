@@ -15,14 +15,17 @@ import org.freeswitch.esl.client.transport.message.EslFrameDecoder;
 class InboundChannelInitializer extends ChannelInitializer<SocketChannel> {
 
     private final ChannelHandler handler;
+    private final ReconnectHandler reconnectHandler;
 
-    public InboundChannelInitializer(ChannelHandler handler) {
+    public InboundChannelInitializer(ChannelHandler handler, ReconnectHandler reconnectHandler) {
         this.handler = handler;
+        this.reconnectHandler = reconnectHandler;
     }
 
     @Override
     public void initChannel(SocketChannel ch) throws Exception {
         ChannelPipeline pipeline = ch.pipeline();
+        pipeline.addLast(reconnectHandler);
         pipeline.addLast("decoder", new EslFrameDecoder(8192));
 
         // now the inbound client logic
