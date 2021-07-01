@@ -3,7 +3,7 @@ apply plugin: 'maven'
 apply plugin: 'maven-publish' //发布到maven 库中的插件
 
 group = 'org.freeswitch.esl.client'
-version = '0.10.0-SNAPSHOT'
+version = '0.10.1-SNAPSHOT'
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
